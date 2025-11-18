@@ -11,21 +11,18 @@
 #include <vector>
 #include <string>
 
-// Simple logging helper to stderr
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
 
-// Log an error message together with the current errno
 static void die(const char *msg) {
     int err = errno;
     fprintf(stderr, "[%d] %s\n", err, msg);
     abort();
 }
 
-/* Read exactly `n` bytes from `fd` into `buf`.
- * Returns 0 on success, -1 on error or unexpected EOF.
- */
+// Reads n bytes from file descriptor fd
+// Returns 0 on success, -1 on error 
 static int32_t read_full(int fd, uint8_t *buf, size_t n) {
     while (n > 0) {
         ssize_t rv { read(fd, buf, n) };
@@ -39,9 +36,8 @@ static int32_t read_full(int fd, uint8_t *buf, size_t n) {
     return 0;
 }
 
-/* Write exactly `n` bytes from `buf` to `fd`.
- * Returns 0 on success, -1 on error.
- */
+// Writes n bytes to file descriptor fd
+// Returns 0 on success, -1 on error
 static int32_t write_all(int fd, const uint8_t *buf, size_t n) {
     while (n > 0) {
         ssize_t rv { write(fd, buf, n) };
@@ -55,16 +51,16 @@ static int32_t write_all(int fd, const uint8_t *buf, size_t n) {
     return 0;
 }
 
-// append to the back
+// append to the back of a buffer
 static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t len) {
     buf.insert(buf.end(), data, data + len);
 }
 
-/* Maximum message payload size accepted by the client/server protocol. */
+// maximum message payload size
 const size_t k_max_msg = 32 << 20;
 
-// send a single length-prefixed request to the server
-// returns 0 on success, -1 on error
+// Sends a length-prefixed request to the server
+// Returns 0 on success, -1 on error
 static int32_t send_req(int fd, const uint8_t *text, size_t len) {
     if (len > k_max_msg) {
         return -1;
@@ -76,12 +72,14 @@ static int32_t send_req(int fd, const uint8_t *text, size_t len) {
     return write_all(fd, wbuf.data(), wbuf.size());
 }
 
-// read a reply from the server
-// returns 0 on success, -1 on error
+// Reads a response from the server
+// Returns 0 on success, -1 on error
 static int32_t read_res(int fd) {   
     std::vector<uint8_t> rbuf;
     rbuf.resize(4);
     errno = 0;
+    
+    // read in the length prefix
     int32_t err { read_full(fd, &rbuf[0], 4) };
 
     if (err) {
@@ -100,6 +98,7 @@ static int32_t read_res(int fd) {
         return -1;
     }
 
+    // read in the response
     rbuf.resize(4 + len);  
     err = read_full(fd, &rbuf[4], len);
     if (err) {
@@ -107,11 +106,13 @@ static int32_t read_res(int fd) {
         return err;
     }
 
+    // debugging purposes
     printf("len:%u data:%.*s\n", len, len < 100 ? len : 100, &rbuf[4]);
     return 0;
 }
 
 int main() {
+    // create listening socket
     int fd { socket(AF_INET, SOCK_STREAM, 0) };
     if (fd < 0) {
         die("socket()");
