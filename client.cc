@@ -11,6 +11,9 @@
 #include <vector>
 #include <string>
 
+// maximum message payload size
+const size_t K_MAX_MSG = 4096;
+
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
@@ -56,22 +59,19 @@ static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t le
     buf.insert(buf.end(), data, data + len);
 }
 
-// maximum message payload size
-const size_t k_max_msg = 4096;
-
 // Sends a length-prefixed request to the server
 // Returns 0 on success, -1 on error
 static int32_t send_req(int fd, const std::vector<std::string> &cmd) {
-    uint32_t len { 4 };
+    uint32_t len = 4;
     for (const std::string &s : cmd) {
         len += 4 + s.size();
     }
 
-    if (len > k_max_msg) {
+    if (len > K_MAX_MSG) {
         return -1;
     }
 
-    char wbuf[4 + k_max_msg];
+    char wbuf[4 + K_MAX_MSG];
     memcpy(&wbuf[0], &len, 4);
     uint32_t n = cmd.size();
     memcpy(&wbuf[4], &n, 4);
@@ -90,11 +90,11 @@ static int32_t send_req(int fd, const std::vector<std::string> &cmd) {
 // Reads a response from the server
 // Returns 0 on success, -1 on error
 static int32_t read_res(int fd) {   
-    char rbuf[4 + k_max_msg];
+    char rbuf[4 + K_MAX_MSG];
     errno = 0;
     
     // read in the length prefix
-    int32_t err { read_full(fd, &rbuf[0], 4) };
+    int32_t err { read_full(fd, rbuf, 4) };
 
     if (err) {
         if (errno == 0) {
@@ -107,7 +107,7 @@ static int32_t read_res(int fd) {
 
     uint32_t len { 0 };
     memcpy(&len, rbuf, 4);
-    if (len > k_max_msg) {
+    if (len > K_MAX_MSG) {
         msg("too long");
         return -1;
     }
