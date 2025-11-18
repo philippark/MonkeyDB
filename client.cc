@@ -11,9 +11,6 @@
 #include <vector>
 #include <string>
 
-// TODO: REMOVE THIS
-#include <iostream>
-
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
