@@ -15,12 +15,16 @@
 // C++
 #include <vector>
 #include <string>
+#include <map>
 
 // maximum allowed message size
 const size_t K_MAX_MSG = 32 << 20;
 
 // maximum allowed arguments for a command
 const size_t K_MAX_ARGS = 200 * 1000;
+
+// database data
+static std::map<std::string, std::string> g_data;
 
 // Representation for a single client connection
 struct Conn {
@@ -32,6 +36,19 @@ struct Conn {
     // input and output buffers
     std::vector<uint8_t> incoming;   
     std::vector<uint8_t> outgoing; 
+};
+
+// Possible Response statuses
+enum {
+    RES_OK = 0,
+    RES_ERR = 1, // error
+    RES_NX = 2, // key not found
+};
+
+// Representation for a server response
+struct Response {
+    uint32_t status = 0;
+    std::vector<uint8_t> data;
 };
 
 static void msg(const char *msg) {
@@ -134,9 +151,37 @@ static int32_t parse_req(const uint8_t *data, size_t size, std::vector<std::stri
     return 0;
 }
 
-// handles one request in the form of a length prefixed protocol
+// handles a single database request and stores into out
+// 3 cases: get, set, del
+static void do_request(std::vector<std::string> &cmd, Response &out) {
+    if (cmd.size() == 2 && cmd[0] == "get") {
+        auto it { g_data.find(cmd[1]) };
+        if (it == g_data.end()) {
+            out.status = RES_NX; // not found
+            return;
+        }
+        const std::string &val = it->second;
+        out.data.assign(val.begin(), val.end());
+    } else if (cmd.size() == 3 && cmd[0] == "set") {
+        g_data[cmd[1]].swap(cmd[2]);
+    } else if (cmd.size() == 2 && cmd[0] == "del") {
+        g_data.erase(cmd[1]);
+    } else {
+        out.status = RES_ERR; // unrecognized command
+    }
+}
+
+// serialize the response
+static void make_response(const Response &resp, std::vector<uint8_t> &out) {
+    uint32_t resp_len { 4 + static_cast<uint32_t>(resp.data.size())};
+    buf_append(out, reinterpret_cast<const uint8_t *>(&resp_len), 4);
+    buf_append(out, reinterpret_cast<const uint8_t *>(&resp.status), 4);
+    buf_append(out, resp.data.data(), resp.data.size());
+}
+
+// handles one client request
 static bool try_one_request(Conn *conn) {
-    // need at least 4 bytes for the length
+    // grab the length
     if (conn->incoming.size() < 4) {
         return false;
     }
@@ -150,14 +195,26 @@ static bool try_one_request(Conn *conn) {
         return false;
     }
 
+    // grab the request body
     if (4 + len > conn->incoming.size()) {
         return false;
     }
 
     const uint8_t *request { &conn->incoming[4] };
 
-    buf_append(conn->outgoing, reinterpret_cast<const uint8_t *>(&len), 4);
-    buf_append(conn->outgoing, request, len);
+    // parse the request
+    std::vector<std::string> cmd;
+    if (parse_req(request, len, cmd) < 0) {
+        conn->want_close = true;
+        return false;
+    }
+
+    // execute the request
+    Response resp;
+    do_request(cmd, resp);
+
+    // serialize the response
+    make_response(resp, conn->outgoing);
 
     buf_consume(conn->incoming, 4 + len);
 
