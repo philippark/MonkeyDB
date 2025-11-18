@@ -260,7 +260,7 @@ int main() {
     if (fd < 0) {
         die("socket()");
     }
-    val { 1 };
+    int val { 1 };
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
 
     // bind
