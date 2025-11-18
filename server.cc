@@ -14,6 +14,7 @@
 #include <netinet/ip.h>
 // C++
 #include <vector>
+#include <string>
 
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
@@ -70,6 +71,68 @@ static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t le
 // remove from the front of a buffer
 static void buf_consume(std::vector<uint8_t> &buf, size_t n) {
     buf.erase(buf.begin(), buf.begin() + n);
+}
+
+
+// maximum allowed arguments for a command
+const size_t k_max_args = 200 * 1000;
+
+// reads a unsigned 32 byte int from cur into out
+static bool read_u32(const uint8_t *&cur, const uint8_t *end, uint32_t &out) {
+    if (cur + 4 > end) {
+        return false;
+    }
+
+    memcpy(&out, cur, 4);
+    cur += 4;
+    return true;
+}
+
+// reads in a string of length len from cur into out
+static bool read_str(const uint8_t *&cur, const uint8_t *end, size_t len, std::string &out) {
+    if (cur + len > end) {
+        return false;
+    }
+    
+    out.assign(cur, cur + len);
+    cur += len;
+    return true;
+}
+
+// parses a request that contains a list of strings
+// protocol: nstr len1 str1 len2 str2 ...
+// nstr is the length of the whole list, and each string is length-prefixed
+static int32_t parse_req(const uint8_t *data, size_t size, std::vector<std::string> &out) {
+    const uint8_t *end { data + size };
+    uint32_t nstr { 0 };
+
+    if (!read_u32(data, end, nstr)) {
+        return -1;
+    }
+
+    if (nstr > k_max_args) {
+        return -1;
+    }
+
+    while (out.size() < nstr) {
+        uint32_t len { 0 };
+
+        if (!read_u32(data, end, len)) {
+            return -1;
+        }
+
+        out.push_back(std::string());
+
+        if (!read_str(data, end, len, out.back())) {
+            return -1;
+        }
+    }
+
+    if (data != end) {
+        return -1;
+    }
+
+    return 0;
 }
 
 // handles one request in the form of a length prefixed protocol
