@@ -11,6 +11,9 @@
 #include <vector>
 #include <string>
 
+// maximum message payload size
+const size_t K_MAX_MSG = 32 << 20;
+
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
@@ -56,13 +59,10 @@ static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t le
     buf.insert(buf.end(), data, data + len);
 }
 
-// maximum message payload size
-const size_t k_max_msg = 32 << 20;
-
 // Sends a length-prefixed request to the server
 // Returns 0 on success, -1 on error
 static int32_t send_req(int fd, const uint8_t *text, size_t len) {
-    if (len > k_max_msg) {
+    if (len > K_MAX_MSG) {
         return -1;
     }
 
@@ -93,7 +93,7 @@ static int32_t read_res(int fd) {
 
     uint32_t len { 0 };
     memcpy(&len, rbuf.data(), 4);
-    if (len > k_max_msg) {
+    if (len > K_MAX_MSG) {
         msg("too long");
         return -1;
     }
@@ -130,7 +130,7 @@ int main() {
 
     // multiple pipelined requests
     std::vector<std::string> query_list { "hello1", "hello2", "hello3",
-        std::string(k_max_msg, 'z'), // requires multiple iterations
+        std::string(K_MAX_MSG, 'z'), // requires multiple iterations
         "hello5",
     };
 
