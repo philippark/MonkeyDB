@@ -16,6 +16,24 @@
 #include <vector>
 #include <string>
 
+// maximum allowed message size
+const size_t K_MAX_MSG = 32 << 20;
+
+// maximum allowed arguments for a command
+const size_t K_MAX_ARGS = 200 * 1000;
+
+// Representation for a single client connection
+struct Conn {
+    int fd { -1 };
+    // operation 
+    bool want_read { false }; 
+    bool want_write { false };
+    bool want_close { false };
+    // input and output buffers
+    std::vector<uint8_t> incoming;   
+    std::vector<uint8_t> outgoing; 
+};
+
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
@@ -48,21 +66,6 @@ static void fd_set_nb(int fd) {
     }
 }
 
-// maximum allowed message size
-const size_t k_max_msg = 32 << 20;
-
-// Representation for a single client connection
-struct Conn {
-    int fd { -1 };
-    // operation 
-    bool want_read { false }; 
-    bool want_write { false };
-    bool want_close { false };
-    // input and output buffers
-    std::vector<uint8_t> incoming;   
-    std::vector<uint8_t> outgoing; 
-};
-
 // append to the back of a buffer
 static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t len) {
     buf.insert(buf.end(), data, data + len);
@@ -72,10 +75,6 @@ static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t le
 static void buf_consume(std::vector<uint8_t> &buf, size_t n) {
     buf.erase(buf.begin(), buf.begin() + n);
 }
-
-
-// maximum allowed arguments for a command
-const size_t k_max_args = 200 * 1000;
 
 // reads a unsigned 32 byte int from cur into out
 static bool read_u32(const uint8_t *&cur, const uint8_t *end, uint32_t &out) {
@@ -110,7 +109,7 @@ static int32_t parse_req(const uint8_t *data, size_t size, std::vector<std::stri
         return -1;
     }
 
-    if (nstr > k_max_args) {
+    if (nstr > K_MAX_ARGS) {
         return -1;
     }
 
@@ -145,7 +144,7 @@ static bool try_one_request(Conn *conn) {
     uint32_t len { 0 };
     memcpy(&len, conn->incoming.data(), 4);
 
-    if (len > k_max_msg) {
+    if (len > K_MAX_MSG) {
         msg("too long");
         conn->want_close = true;
         return false;
