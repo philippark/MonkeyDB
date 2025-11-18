@@ -253,7 +253,8 @@ int main() {
             die("poll");
         }
         
-        // connection is ready, accept, create a Conn object, and store in the map 
+        // handle listening socket
+        // accept, create a connection representation, and store in the map 
         if (poll_args[0].revents) {
             if (Conn *conn {handle_accept(fd)}) {
                 if (fd2conn.size() <= static_cast<size_t>(conn->fd)) {
