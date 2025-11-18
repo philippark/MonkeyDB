@@ -14,6 +14,42 @@
 #include <netinet/ip.h>
 // C++
 #include <vector>
+#include <string>
+#include <map>
+
+// maximum allowed message size
+const size_t K_MAX_MSG = 32 << 20;
+
+// maximum allowed arguments for a command
+const size_t K_MAX_ARGS = 200 * 1000;
+
+// database data
+static std::map<std::string, std::string> g_data;
+
+// Representation for a single client connection
+struct Conn {
+    int fd { -1 };
+    // operation 
+    bool want_read { false }; 
+    bool want_write { false };
+    bool want_close { false };
+    // input and output buffers
+    std::vector<uint8_t> incoming;   
+    std::vector<uint8_t> outgoing; 
+};
+
+// Possible Response statuses
+enum {
+    RES_OK = 0,
+    RES_ERR = 1, // error
+    RES_NX = 2, // key not found
+};
+
+// Representation for a server response
+struct Response {
+    uint32_t status = 0;
+    std::vector<uint8_t> data;
+};
 
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
@@ -47,21 +83,6 @@ static void fd_set_nb(int fd) {
     }
 }
 
-// maximum allowed message size
-const size_t k_max_msg = 32 << 20;
-
-// Representation for a single client connection
-struct Conn {
-    int fd { -1 };
-    // operation 
-    bool want_read { false }; 
-    bool want_write { false };
-    bool want_close { false };
-    // input and output buffers
-    std::vector<uint8_t> incoming;   
-    std::vector<uint8_t> outgoing; 
-};
-
 // append to the back of a buffer
 static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t len) {
     buf.insert(buf.end(), data, data + len);
@@ -72,9 +93,95 @@ static void buf_consume(std::vector<uint8_t> &buf, size_t n) {
     buf.erase(buf.begin(), buf.begin() + n);
 }
 
-// handles one request in the form of a length prefixed protocol
+// reads a unsigned 32 byte int from cur into out
+static bool read_u32(const uint8_t *&cur, const uint8_t *end, uint32_t &out) {
+    if (cur + 4 > end) {
+        return false;
+    }
+
+    memcpy(&out, cur, 4);
+    cur += 4;
+    return true;
+}
+
+// reads in a string of length len from cur into out
+static bool read_str(const uint8_t *&cur, const uint8_t *end, size_t len, std::string &out) {
+    if (cur + len > end) {
+        return false;
+    }
+    
+    out.assign(cur, cur + len);
+    cur += len;
+    return true;
+}
+
+// parses a request that contains a list of strings
+// protocol: nstr len1 str1 len2 str2 ...
+// nstr is the length of the whole list, and each string is length-prefixed
+static int32_t parse_req(const uint8_t *data, size_t size, std::vector<std::string> &out) {
+    const uint8_t *end { data + size };
+    uint32_t nstr { 0 };
+
+    if (!read_u32(data, end, nstr)) {
+        return -1;
+    }
+
+    if (nstr > K_MAX_ARGS) {
+        return -1;
+    }
+
+    while (out.size() < nstr) {
+        uint32_t len { 0 };
+
+        if (!read_u32(data, end, len)) {
+            return -1;
+        }
+
+        out.push_back(std::string());
+
+        if (!read_str(data, end, len, out.back())) {
+            return -1;
+        }
+    }
+
+    if (data != end) {
+        return -1;
+    }
+
+    return 0;
+}
+
+// handles a single database request and stores into out
+// 3 cases: get, set, del
+static void do_request(std::vector<std::string> &cmd, Response &out) {
+    if (cmd.size() == 2 && cmd[0] == "get") {
+        auto it { g_data.find(cmd[1]) };
+        if (it == g_data.end()) {
+            out.status = RES_NX; // not found
+            return;
+        }
+        const std::string &val = it->second;
+        out.data.assign(val.begin(), val.end());
+    } else if (cmd.size() == 3 && cmd[0] == "set") {
+        g_data[cmd[1]].swap(cmd[2]);
+    } else if (cmd.size() == 2 && cmd[0] == "del") {
+        g_data.erase(cmd[1]);
+    } else {
+        out.status = RES_ERR; // unrecognized command
+    }
+}
+
+// serialize the response
+static void make_response(const Response &resp, std::vector<uint8_t> &out) {
+    uint32_t resp_len { 4 + static_cast<uint32_t>(resp.data.size())};
+    buf_append(out, reinterpret_cast<const uint8_t *>(&resp_len), 4);
+    buf_append(out, reinterpret_cast<const uint8_t *>(&resp.status), 4);
+    buf_append(out, resp.data.data(), resp.data.size());
+}
+
+// handles one client request
 static bool try_one_request(Conn *conn) {
-    // need at least 4 bytes for the length
+    // grab the length
     if (conn->incoming.size() < 4) {
         return false;
     }
@@ -82,20 +189,32 @@ static bool try_one_request(Conn *conn) {
     uint32_t len { 0 };
     memcpy(&len, conn->incoming.data(), 4);
 
-    if (len > k_max_msg) {
+    if (len > K_MAX_MSG) {
         msg("too long");
         conn->want_close = true;
         return false;
     }
 
+    // grab the request body
     if (4 + len > conn->incoming.size()) {
         return false;
     }
 
     const uint8_t *request { &conn->incoming[4] };
 
-    buf_append(conn->outgoing, reinterpret_cast<const uint8_t *>(&len), 4);
-    buf_append(conn->outgoing, request, len);
+    // parse the request
+    std::vector<std::string> cmd;
+    if (parse_req(request, len, cmd) < 0) {
+        conn->want_close = true;
+        return false;
+    }
+
+    // execute the request
+    Response resp;
+    do_request(cmd, resp);
+
+    // serialize the response
+    make_response(resp, conn->outgoing);
 
     buf_consume(conn->incoming, 4 + len);
 
@@ -197,7 +316,7 @@ int main() {
     if (fd < 0) {
         die("socket()");
     }
-    val { 1 };
+    int val { 1 };
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
 
     // bind
