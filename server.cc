@@ -51,6 +51,17 @@ struct Response {
     std::vector<uint8_t> data;
 };
 
+struct HashNode {
+    HashNode *next;
+    uint64_t hash_code { 0 }; // hash value
+};
+
+struct HashTable {
+    HashNode **table { nullptr };
+    size_t mask { 0 }; // power of 2 of the array size
+    size_t size = { 0 }; // number of keys in the table
+};
+
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
@@ -81,6 +92,23 @@ static void fd_set_nb(int fd) {
     if (errno) {
         die("fcntl error");
     }
+}
+
+// initialize hash table
+void hash_init(HashTable *hash_table, size_t n) {
+    assert(n > 0 && ((n - 1) & n) == 0); // check that n is a power of 2
+    hash_table->table = (HashNode **)calloc(n, sizeof(HashNode *));
+    hash_table->mask = n - 1;
+    hash_table->size = n; 
+}
+
+// insert hash node into hash table
+void hash_insert(HashTable *hash_table, HashNode *hash_node) {
+    size_t pos = hash_node->hash_code & hash_table->mask;
+    HashNode *next = hash_table->table[pos];
+    hash_node->next = next;
+    hash_table->table[pos] = hash_node;
+    hash_table->size++; 
 }
 
 // append to the back of a buffer
