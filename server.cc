@@ -111,6 +111,35 @@ void hash_insert(HashTable *hash_table, HashNode *hash_node) {
     hash_table->size++; 
 }
 
+// finds and returns the address of the node if key exists in the hash table
+static HashNode **hash_lookup(HashTable *hash_table, HashNode *key, bool (*eq)(HashNode*, HashNode*)) {
+    if (!hash_table->table) {
+        return nullptr;
+    }
+
+    size_t pos = key->hash_code & hash_table->mask;
+
+    HashNode** curr_addr = &hash_table->table[pos];
+    HashNode* curr_node = *curr_addr;
+
+    while (curr_node != nullptr) {
+        if (curr_node->hash_code == key->hash_code && eq(curr_node, key)) {
+            // return the actual address for deletion instances
+            return curr_addr; 
+        }
+
+        curr_addr = &curr_node->next;
+        curr_node = *curr_addr;
+    }
+}
+
+static HashNode* hash_detach(HashTable *table, HashNode **node_addr) {
+    HashNode *node = *node_addr;
+    *node_addr = node->next;
+    table->size--;
+    return node;
+}
+
 // append to the back of a buffer
 static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t len) {
     buf.insert(buf.end(), data, data + len);
