@@ -62,6 +62,13 @@ struct HashTable {
     size_t size = { 0 }; // number of keys in the table
 };
 
+// Re-sizable hashmap
+struct HashMap {
+    HashTable newer;
+    HashTable older;
+    size_t migrate_pos { 0 };
+};
+
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
