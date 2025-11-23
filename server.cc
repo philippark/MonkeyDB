@@ -147,6 +147,39 @@ static HashNode* hash_detach(HashTable *table, HashNode **node_addr) {
     return node;
 }
 
+// handles rehashing the hashmap when it's overloaded
+static void hash_map_rehash(HashMap *hash_map) {
+    hash_map->older = hash_map->newer;
+    hash_init(&hash_map->newer, (hash_map->newer.mask + 1) * 2);
+    hash_map->migrate_pos = 0;
+}
+
+// handles lookups for a key in a hashmap
+// returns node in hashmap if key is found, else null
+HashNode *hash_map_lookup(HashMap *hash_map, HashNode *key, bool (*eq)(HashNode *, HashNode *)) {
+    HashNode **node_addr = hash_lookup(&hash_map->newer, key, eq);
+
+    if (!node_addr) {
+        node_addr = hash_lookup(&hash_map->older, key, eq);
+    }
+
+    return node_addr ? *node_addr : nullptr;
+}
+
+// handles deleting a key from a hashmap
+// returns deleted node from hashmap if found, returns null if node not found
+HashNode *hash_map_delete(HashMap *hash_map, HashNode *key, bool (*eq)(HashNode *, HashNode *)) {
+    if (HashNode **node_addr = hash_lookup(&hash_map->newer, key, eq)) {
+        return hash_detach(&hash_map->newer, node_addr);
+    }
+
+    if (HashNode **node_addr = hash_lookup(&hash_map->older, key, eq)) {
+        return hash_detach(&hash_map->older, node_addr);
+    }
+
+    return nullptr;
+}
+
 // append to the back of a buffer
 static void buf_append(std::vector<uint8_t> &buf, const uint8_t *data, size_t len) {
     buf.insert(buf.end(), data, data + len);
