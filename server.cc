@@ -75,6 +75,18 @@ struct HashMap {
     size_t migrate_pos { 0 };
 };
 
+// top-level hashmap
+static struct {
+    HashMap* db;
+} g_data;
+
+// key-value entry pair
+struct Entry {
+    struct HashNode node;
+    std::string key;
+    std::string value;
+};
+
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
