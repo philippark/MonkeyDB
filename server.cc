@@ -23,6 +23,12 @@ const size_t K_MAX_MSG = 32 << 20;
 // maximum allowed arguments for a command
 const size_t K_MAX_ARGS = 200 * 1000;
 
+// maximum load factor for a hashmap
+const size_t K_MAX_LOAD_FACTOR = 8;
+
+// number of keys to migrate during rehashing
+const size_t K_REHASHING_WORK = 128;
+
 // database data
 static std::map<std::string, std::string> g_data;
 
@@ -154,11 +160,41 @@ static void hash_map_rehash(HashMap *hash_map) {
     hash_map->migrate_pos = 0;
 }
 
+// migrates a constant number of items from older to newer table
+void hash_map_migrate(HashMap *hash_map) {
+    size_t migrated { 0 };
+
+    while (migrated < K_REHASHING_WORK && hash_map->older.size > 0) {
+        HashNode **node_addr { &hash_map->older.table[hash_map->migrate_pos] };
+
+        // if empty node, skip it
+        if (!*node_addr) {
+            hash_map->migrate_pos++;
+            continue;
+        }
+
+        // remove from older, and insert into newer
+        HashNode* node { hash_detach(&hash_map->older, node_addr) };
+        hash_insert(&hash_map->newer, node);
+        migrated++;
+    }
+
+    // free older table if no more keys in it
+    if (hash_map->older.size == 0 && hash_map->older.table) {
+        free(hash_map->older.table);
+        hash_map->older = HashTable{};
+    }
+}
+
 // handles lookups for a key in a hashmap
 // returns node in hashmap if key is found, else null
 HashNode *hash_map_lookup(HashMap *hash_map, HashNode *key, bool (*eq)(HashNode *, HashNode *)) {
+    // progressive migration
+    hash_map_migrate(hash_map);
+    
     HashNode **node_addr = hash_lookup(&hash_map->newer, key, eq);
 
+    // if not in newer, check if in older
     if (!node_addr) {
         node_addr = hash_lookup(&hash_map->older, key, eq);
     }
@@ -169,15 +205,41 @@ HashNode *hash_map_lookup(HashMap *hash_map, HashNode *key, bool (*eq)(HashNode 
 // handles deleting a key from a hashmap
 // returns deleted node from hashmap if found, returns null if node not found
 HashNode *hash_map_delete(HashMap *hash_map, HashNode *key, bool (*eq)(HashNode *, HashNode *)) {
+    // progressive migrating
+    hash_map_migrate(hash_map);
+
+    // check newer
     if (HashNode **node_addr = hash_lookup(&hash_map->newer, key, eq)) {
         return hash_detach(&hash_map->newer, node_addr);
     }
-
+    
+    // check older
     if (HashNode **node_addr = hash_lookup(&hash_map->older, key, eq)) {
         return hash_detach(&hash_map->older, node_addr);
     }
 
     return nullptr;
+}
+
+// inserts node into the hashmap
+void hash_map_insert(HashMap *hash_map, HashNode *node) {
+    // initialize if no newer table
+    if (!hash_map->newer.table) {
+        hash_init(&hash_map->newer, 4);
+    }
+
+    hash_insert(&hash_map->newer, node);
+
+    // rehash if too much keys in newer table
+    if (!hash_map->older.table) {
+        size_t threshold { (hash_map->newer.mask + 1) * K_MAX_LOAD_FACTOR };
+        if (hash_map->newer.size >= threshold) {
+            hash_map_rehash(hash_map);
+        }
+    }
+
+    // progressive migration
+    hash_map_migrate(hash_map);
 }
 
 // append to the back of a buffer
