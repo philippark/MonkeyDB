@@ -144,6 +144,8 @@ static HashNode **hash_lookup(HashTable *hash_table, HashNode *key, bool (*eq)(H
         curr_addr = &curr_node->next;
         curr_node = *curr_addr;
     }
+
+    return nullptr;
 }
 
 static HashNode* hash_detach(HashTable *table, HashNode **node_addr) {
