@@ -17,6 +17,9 @@
 #include <string>
 #include <map>
 
+#define container_of(ptr, T, member) \
+    ((T *)((char *)ptr - offsetof(T, member)))
+
 // maximum allowed message size
 const size_t K_MAX_MSG = 32 << 20;
 
@@ -117,6 +120,14 @@ static void fd_set_nb(int fd) {
     if (errno) {
         die("fcntl error");
     }
+}
+
+// compare equality of two hash nodes
+static bool entry_eq(HashNode *lhs, HashNode *rhs) {
+    struct Entry *le = container_of(lhs, struct Entry, node);
+    struct Entry *re = container_of(rhs, struct Entry, node);
+
+    return le->key == re->key;
 }
 
 // initialize hash table
