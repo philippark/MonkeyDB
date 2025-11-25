@@ -17,6 +17,9 @@
 #include <string>
 #include <map>
 
+#define container_of(ptr, T, member) \
+    ((T *)((char *)ptr - offsetof(T, member)))
+
 // maximum allowed message size
 const size_t K_MAX_MSG = 32 << 20;
 
@@ -75,6 +78,18 @@ struct HashMap {
     size_t migrate_pos { 0 };
 };
 
+// top-level hashmap
+static struct {
+    HashMap* db;
+} g_data;
+
+// key-value entry pair
+struct Entry {
+    struct HashNode node;
+    std::string key;
+    std::string value;
+};
+
 static void msg(const char *msg) {
     fprintf(stderr, "%s\n", msg);
 }
@@ -105,6 +120,14 @@ static void fd_set_nb(int fd) {
     if (errno) {
         die("fcntl error");
     }
+}
+
+// compare equality of two hash nodes
+static bool entry_eq(HashNode *lhs, HashNode *rhs) {
+    struct Entry *le = container_of(lhs, struct Entry, node);
+    struct Entry *re = container_of(rhs, struct Entry, node);
+
+    return le->key == re->key;
 }
 
 // initialize hash table
